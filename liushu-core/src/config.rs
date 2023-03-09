@@ -23,10 +23,11 @@ impl Config {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, StaticType)]
+#[derive(Debug, Clone, Serialize, Deserialize, StaticType)]
 pub struct Formula {
-    id: String,
-    name: Option<String>,
+    pub id: String,
+    pub name: Option<String>,
+    pub use_hmm: bool,
     dictionaries: Vec<String>,
 }
 
@@ -49,21 +50,11 @@ impl Formula {
 mod tests {
     use super::*;
 
-    impl Clone for Formula {
-        fn clone(&self) -> Self {
-            Self {
-                id: self.id.clone(),
-                name: self.name.clone(),
-                dictionaries: self.dictionaries.clone(),
-            }
-        }
-    }
-
     #[test]
     fn test_prelude() {
         let config = Config::load_from_path("../prelude/main.dhall");
 
-        assert_eq!(config.formulas.len(), 1);
+        assert_eq!(config.formulas.len(), 2);
 
         let sunman = config.formulas[0].clone();
         assert_eq!(sunman.id, String::from("sunman"));

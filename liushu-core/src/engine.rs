@@ -1,12 +1,39 @@
-use std::collections::VecDeque;
+pub mod state;
+
+use std::collections::{HashMap, VecDeque};
 
 use anyhow::Result;
 use rusqlite::{params, Connection, Result as SqlResult, Row};
 
 use crate::dirs::PROJECT_DIRS;
 
+use self::state::State;
+
 pub trait InputMethodEngine {
     fn search(&self, code: &str) -> Result<Vec<SearchResultItem>>;
+}
+
+#[derive(Default)]
+pub struct NewEngine {
+    state: State,
+    formulas: HashMap<String, Box<dyn InputMethodEngine>>,
+}
+
+impl NewEngine {
+    pub fn new(state: State, formulas: HashMap<String, Box<dyn InputMethodEngine>>) -> Self {
+        Self { state, formulas }
+    }
+
+    pub fn set_active_formula(&mut self, formula_id: &str) {
+        self.state.active_formula_id = formula_id.to_owned();
+    }
+}
+
+impl InputMethodEngine for NewEngine {
+    fn search(&self, code: &str) -> Result<Vec<SearchResultItem>> {
+        let active_formula = self.formulas.get(&self.state.active_formula_id).unwrap();
+        active_formula.search(code)
+    }
 }
 
 pub struct EngineManager {
@@ -102,6 +129,8 @@ mod tests {
     use anyhow::anyhow;
     use rusqlite::{params, Connection};
 
+    use crate::engine::state::Formula;
+
     use super::*;
 
     #[test]
@@ -161,13 +190,28 @@ mod tests {
             }
         }
 
-        let mut engine = EngineManager::from(
-            [Box::new(Engine1), Box::new(Engine2)] as [Box<dyn InputMethodEngine>; 2]
-        );
+        let state = State {
+            active_formula_id: "engine1".to_string(),
+            avaliable_formulas: vec![
+                Formula {
+                    id: "engine1".to_string(),
+                    ..Default::default()
+                },
+                Formula {
+                    id: "engine2".to_string(),
+                    ..Default::default()
+                },
+            ],
+        };
+        let mut formulas: HashMap<String, Box<dyn InputMethodEngine>> = HashMap::new();
+        formulas.insert("engine1".to_string(), Box::new(Engine1));
+        formulas.insert("engine2".to_string(), Box::new(Engine2));
+
+        let mut engine = NewEngine::new(state, formulas);
 
         assert!(engine.search("hello").is_ok());
 
-        engine.set_active_engine(1);
+        engine.set_active_formula("engine2");
         assert!(engine.search("hello").is_err());
     }
 }

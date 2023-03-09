@@ -3,7 +3,9 @@ use std::io::{stdin, stdout, Write};
 use clap::{Parser, Subcommand};
 use liushu_core::deploy::deploy;
 use liushu_core::dirs::PROJECT_DIRS;
-use liushu_core::engine::{EngineManager, InputMethodEngine, ShapeCodeEngine};
+use liushu_core::engine::{
+    state::State, EngineManager, InputMethodEngine, NewEngine, ShapeCodeEngine,
+};
 use liushu_core::hmm::{train, Hmm};
 use redb::Database;
 
