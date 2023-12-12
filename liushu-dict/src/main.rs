@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use liushu_core::dict::build;
+use liushu_core::dict::build2;
 
 #[derive(Parser)]
 #[command(version)]
@@ -16,15 +16,15 @@ enum Commands {
         inputs: Vec<String>,
 
         #[arg(short, long)]
-        output: String,
+        output_dir: String,
     },
 }
 
 fn main() {
     let cli = Cli::parse();
     match &cli.command {
-        Some(Commands::Build { inputs, output }) => {
-            build(inputs, output).unwrap();
+        Some(Commands::Build { inputs, output_dir }) => {
+            build2(inputs, output_dir).unwrap();
         }
         None => {}
     }
