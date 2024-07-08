@@ -509,7 +509,6 @@ dependencies = [
  "itertools",
  "patricia_tree",
  "pinyin",
- "redb",
  "regex",
  "serde",
  "sha2",
@@ -530,15 +529,6 @@ version = "0.1.0"
 dependencies = [
  "liushu-core",
  "uniffi",
-]
-
-[[package]]
-name = "liushu-ngram"
-version = "0.1.0"
-dependencies = [
- "clap 4.5.4",
- "liushu-core",
- "redb",
 ]
 
 [[package]]
@@ -680,15 +670,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fa76aaf39101c457836aec0ce2316dbdc3ab723cdda1c6bd4e6ad4208acaca7"
 dependencies = [
  "proc-macro2",
-]
-
-[[package]]
-name = "redb"
-version = "1.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd7f82ecd6ba647a39dd1a7172b8a1cd9453c0adee6da20cb553d83a9a460fa5"
-dependencies = [
- "libc",
 ]
 
 [[package]]

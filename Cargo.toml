@@ -16,7 +16,6 @@ members = [
     "liushu-core",
     "liushu-dict",
     "liushu-ffi",
-    "liushu-ngram",
     "uniffi-bindgen",
 ]
 
