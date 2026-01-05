@@ -19,7 +19,11 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(dict_path: impl AsRef<Path>) -> Result<Self, LiushuError> {
-        let trie: Dictionary = bincode::deserialize_from(File::open(dict_path)?)?;
+        let mut dict_file = File::open(dict_path)?;
+        let trie: Dictionary = bincode_next::serde::decode_from_std_read(
+            &mut dict_file,
+            bincode_next::config::standard().with_fixed_int_encoding(),
+        )?;
 
         Ok(Self { trie })
     }

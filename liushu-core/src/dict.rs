@@ -38,8 +38,12 @@ where
         }
     }
 
-    let trie_writer = File::create(output)?;
-    bincode::serialize_into(trie_writer, &trie)?;
+    let mut trie_writer = File::create(output)?;
+    bincode_next::serde::encode_into_std_write(
+        &trie,
+        &mut trie_writer,
+        bincode_next::config::standard().with_fixed_int_encoding(),
+    )?;
 
     Ok(())
 }

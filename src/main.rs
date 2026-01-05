@@ -3,11 +3,10 @@ mod keyboard;
 
 use composor::Composor;
 use keyboard::KeyboardProcessorResponse;
-use liushu_core::engine::{candidates::Candidate, Engine};
+use liushu_core::engine::{Engine, candidates::Candidate};
 use wayland_client::{
-    event_created_child,
+    Connection, Dispatch, QueueHandle, event_created_child,
     protocol::{wl_keyboard, wl_registry},
-    Connection, Dispatch, QueueHandle,
 };
 use wayland_protocols::wp::input_method::zv1::client::{
     zwp_input_method_context_v1,
@@ -121,12 +120,11 @@ impl Dispatch<wl_registry::WlRegistry, ()> for AppState {
         if let wl_registry::Event::Global {
             name, interface, ..
         } = event
+            && &interface[..] == "zwp_input_method_v1"
         {
-            if &interface[..] == "zwp_input_method_v1" {
-                let input_method =
-                    registry.bind::<zwp_input_method_v1::ZwpInputMethodV1, _, _>(name, 1, qh, ());
-                state.input_method = Some(input_method);
-            }
+            let input_method =
+                registry.bind::<zwp_input_method_v1::ZwpInputMethodV1, _, _>(name, 1, qh, ());
+            state.input_method = Some(input_method);
         }
     }
 }

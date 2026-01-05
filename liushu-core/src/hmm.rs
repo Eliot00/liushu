@@ -5,9 +5,7 @@ use std::path::Path;
 use std::{collections::HashMap, io::BufRead};
 
 use itertools::Itertools;
-use redb::{
-    Database, MultimapTableDefinition, ReadableMultimapTable, ReadableTable, TableDefinition,
-};
+use redb::{Database, MultimapTableDefinition, ReadableDatabase, ReadableTable, TableDefinition};
 
 use crate::error::LiushuError;
 
@@ -178,7 +176,7 @@ fn count_states(db: &Database) -> Result<(), LiushuError> {
     Ok(())
 }
 
-pub fn pinyin_to_sentence(py_sequence: &Vec<String>, db: &Database) -> Result<String, LiushuError> {
+pub fn pinyin_to_sentence(py_sequence: &[String], db: &Database) -> Result<String, LiushuError> {
     let read_txn = db.begin_read()?;
     let init_table = read_txn.open_table(INIT_TABLE)?;
     let trans_table = read_txn.open_table(TRANS_TABLE)?;

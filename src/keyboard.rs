@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use liushu_core::engine::candidates::Candidate;
-use wayland_client::{protocol::wl_keyboard, WEnum};
+use wayland_client::{WEnum, protocol::wl_keyboard};
 
 #[derive(Debug, Default)]
 pub struct KeyboardProcessor {

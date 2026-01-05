@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
-use liushu_core::engine::{candidates::Candidate, Engine, InputMethodEngine};
-use wayland_client::{protocol::wl_keyboard, WEnum};
+use liushu_core::engine::{Engine, InputMethodEngine, candidates::Candidate};
+use wayland_client::{WEnum, protocol::wl_keyboard};
 
 use crate::keyboard::KeyboardProcessorResponse;
 

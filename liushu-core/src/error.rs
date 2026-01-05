@@ -48,9 +48,15 @@ impl From<redb::DatabaseError> for LiushuError {
     }
 }
 
-impl From<bincode::Error> for LiushuError {
-    fn from(value: bincode::Error) -> Self {
-        LiushuError::Other(format!("bincode error: {}", value))
+impl From<bincode_next::error::EncodeError> for LiushuError {
+    fn from(value: bincode_next::error::EncodeError) -> Self {
+        LiushuError::Other(format!("bincode encode error: {}", value))
+    }
+}
+
+impl From<bincode_next::error::DecodeError> for LiushuError {
+    fn from(value: bincode_next::error::DecodeError) -> Self {
+        LiushuError::Other(format!("bincode decode error: {}", value))
     }
 }
 
