@@ -1,7 +1,5 @@
-use std::collections::HashSet;
-
-use liushu_core::engine::{Engine, InputMethodEngine, candidates::Candidate};
-use wayland_client::{WEnum, protocol::wl_keyboard};
+use liushu_core::engine::{Engine, InputMethodEngine};
+use liushu_core::engine::candidates::Candidate;
 
 use crate::keyboard::KeyboardProcessorResponse;
 
@@ -10,7 +8,6 @@ pub struct Composor {
     input: String,
     engine: Engine,
     candidates: Vec<Candidate>,
-    handled_keys: HashSet<u32>,
 }
 
 impl Composor {
@@ -21,47 +18,19 @@ impl Composor {
         }
     }
 
+    /// Process a key response and return the action the main loop should take.
     pub fn process(&mut self, data: KeyboardProcessorResponse) -> KeyboardProcessorResponse {
         match data {
-            KeyboardProcessorResponse::Unhandled(wl_keyboard::Event::Key {
-                key, state, ..
-            }) => match state {
-                WEnum::Value(wl_keyboard::KeyState::Pressed) => match key {
-                    14 => {
-                        if !self.input.is_empty() {
-                            self.handled_keys.insert(key);
-                            self.input.pop();
-                            if let Ok(res) = self.engine.search(&self.input) {
-                                self.candidates = res;
-                            }
-                            KeyboardProcessorResponse::Result(
-                                self.input.clone(),
-                                self.candidates.clone(),
-                            )
-                        } else {
-                            data
-                        }
-                    }
-                    28 => {
-                        if self.input.is_empty() {
-                            data
-                        } else {
-                            self.handled_keys.insert(key);
-                            KeyboardProcessorResponse::DirectlyCommit
-                        }
-                    }
-                    _ => data,
-                },
-                WEnum::Value(wl_keyboard::KeyState::Released) => {
-                    if self.handled_keys.contains(&key) {
-                        self.handled_keys.remove(&key);
-                        KeyboardProcessorResponse::Ignored
-                    } else {
-                        data
-                    }
+            KeyboardProcessorResponse::Backspace => {
+                if self.input.is_empty() {
+                    return KeyboardProcessorResponse::Ignored;
                 }
-                _ => data,
-            },
+                self.input.pop();
+                if let Ok(res) = self.engine.search(&self.input) {
+                    self.candidates = res;
+                }
+                KeyboardProcessorResponse::Result(self.input.clone(), self.candidates.clone())
+            }
             KeyboardProcessorResponse::Composing(spell_key) => {
                 let key_str = match spell_key {
                     16 => "q",

@@ -3,20 +3,20 @@ mod keyboard;
 
 use composor::Composor;
 use keyboard::KeyboardProcessorResponse;
-use liushu_core::engine::{Engine, candidates::Candidate};
+use liushu_core::engine::Engine;
+use liushu_core::engine::candidates::Candidate;
 use wayland_client::{
-    Connection, Dispatch, QueueHandle, event_created_child,
+    Connection, Dispatch, QueueHandle, WEnum,
     protocol::{wl_keyboard, wl_registry},
 };
-use wayland_protocols::wp::input_method::zv1::client::{
-    zwp_input_method_context_v1,
-    zwp_input_method_v1::{self, EVT_ACTIVATE_OPCODE},
+use wayland_client::protocol::wl_seat::WlSeat;
+use wayland_protocols_misc::zwp_input_method_v2::client::{
+    zwp_input_method_manager_v2, zwp_input_method_v2, zwp_input_method_keyboard_grab_v2,
 };
 use xdg::BaseDirectories;
 
 fn main() {
     let conn = Connection::connect_to_env().unwrap();
-
     let mut event_queue = conn.new_event_queue();
     let qhandle = event_queue.handle();
 
@@ -42,71 +42,23 @@ fn main() {
 struct AppState {
     running: bool,
     input: String,
-    input_method: Option<zwp_input_method_v1::ZwpInputMethodV1>,
-    context: Option<zwp_input_method_context_v1::ZwpInputMethodContextV1>,
-    input_serial: u32,
     candidates: Vec<Candidate>,
     composor: Composor,
     keyboard_processor: keyboard::KeyboardProcessor,
     is_ascii_mode: bool,
+    // v2 objects
+    input_method_manager: Option<zwp_input_method_manager_v2::ZwpInputMethodManagerV2>,
+    input_method: Option<zwp_input_method_v2::ZwpInputMethodV2>,
+    keyboard_grab: Option<zwp_input_method_keyboard_grab_v2::ZwpInputMethodKeyboardGrabV2>,
+    seat: Option<WlSeat>,
+    /// The serial that must be passed to `commit()` — equals the number of
+    /// `done` events received so far from the compositor.
+    done_serial: u32,
 }
 
-impl AppState {
-    pub fn process(&mut self, event: wl_keyboard::Event) {
-        match event {
-            wl_keyboard::Event::Enter { .. } => {
-                println!("enter");
-            }
-            wl_keyboard::Event::Leave { .. } => {
-                println!("leave");
-            }
-            wl_keyboard::Event::Key {
-                serial,
-                time,
-                key,
-                state,
-            } => {
-                let response = self.composor.process(
-                    self.keyboard_processor
-                        .handle_event(event, self.is_ascii_mode),
-                );
-                match (response, self.context.as_ref()) {
-                    (KeyboardProcessorResponse::Commit, Some(ctx)) => {
-                        if self.input.is_empty() {
-                            ctx.commit_string(self.input_serial, " ".to_string());
-                        } else if !self.candidates.is_empty() {
-                            ctx.commit_string(self.input_serial, self.candidates[0].text.clone());
-                            self.input.clear();
-                            self.composor.clear();
-                        }
-                    }
-                    (KeyboardProcessorResponse::DirectlyCommit, Some(ctx)) => {
-                        ctx.commit_string(self.input_serial, self.input.clone());
-                        self.input.clear();
-                        self.composor.clear();
-                    }
-                    (KeyboardProcessorResponse::Result(input, candidates), Some(ctx)) => {
-                        self.input = input;
-                        self.candidates = candidates;
-                        ctx.preedit_string(
-                            self.input_serial,
-                            self.input.clone(),
-                            self.input.clone(),
-                        );
-                    }
-                    (KeyboardProcessorResponse::Unhandled(_), Some(ctx)) => {
-                        ctx.key(serial, time, key, state.into());
-                    }
-                    (KeyboardProcessorResponse::Toggle, _) => {
-                        self.is_ascii_mode = !self.is_ascii_mode;
-                    }
-                    _ => {}
-                }
-            }
-            _ => {}
-        }
-    }
-}
+// ---------------------------------------------------------------------------
+// Registry — bind the v2 manager and the wl_seat
+// ---------------------------------------------------------------------------
 
 impl Dispatch<wl_registry::WlRegistry, ()> for AppState {
     fn event(
@@ -120,82 +72,183 @@ impl Dispatch<wl_registry::WlRegistry, ()> for AppState {
         if let wl_registry::Event::Global {
             name, interface, ..
         } = event
-            && &interface[..] == "zwp_input_method_v1"
         {
-            let input_method =
-                registry.bind::<zwp_input_method_v1::ZwpInputMethodV1, _, _>(name, 1, qh, ());
-            state.input_method = Some(input_method);
+            match &interface[..] {
+                "zwp_input_method_manager_v2" => {
+                    let mgr = registry
+                        .bind::<zwp_input_method_manager_v2::ZwpInputMethodManagerV2, _, _>(
+                            name, 1, qh, (),
+                        );
+                    state.input_method_manager = Some(mgr);
+                }
+                "wl_seat" => {
+                    let seat = registry.bind::<WlSeat, _, _>(name, 7, qh, ());
+                    state.seat = Some(seat);
+                }
+                _ => {}
+            }
+
+            // Once we have both manager and seat, create the input method.
+            if state.input_method.is_none() {
+                if let (Some(mgr), Some(seat)) =
+                    (state.input_method_manager.as_ref(), state.seat.as_ref())
+                {
+                    let im = mgr.get_input_method(seat, qh, ());
+                    state.input_method = Some(im);
+                }
+            }
         }
     }
 }
 
-impl Dispatch<zwp_input_method_v1::ZwpInputMethodV1, ()> for AppState {
+// Required stub Dispatch for the manager (no events on manager objects).
+impl Dispatch<zwp_input_method_manager_v2::ZwpInputMethodManagerV2, ()> for AppState {
     fn event(
-        state: &mut Self,
-        _proxy: &zwp_input_method_v1::ZwpInputMethodV1,
-        event: zwp_input_method_v1::Event,
+        _state: &mut Self,
+        _proxy: &zwp_input_method_manager_v2::ZwpInputMethodManagerV2,
+        _event: <zwp_input_method_manager_v2::ZwpInputMethodManagerV2 as wayland_client::Proxy>::Event,
         _data: &(),
         _conn: &Connection,
-        qhandle: &QueueHandle<Self>,
+        _qh: &QueueHandle<Self>,
     ) {
-        println!("current event is {:#?}", event);
+    }
+}
+
+// Required stub Dispatch for the wl_seat (we don't use seat events directly).
+impl Dispatch<WlSeat, ()> for AppState {
+    fn event(
+        _state: &mut Self,
+        _proxy: &WlSeat,
+        _event: <WlSeat as wayland_client::Proxy>::Event,
+        _data: &(),
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+// ---------------------------------------------------------------------------
+// zwp_input_method_v2 — activate / deactivate / done / unavailable
+// ---------------------------------------------------------------------------
+
+impl Dispatch<zwp_input_method_v2::ZwpInputMethodV2, ()> for AppState {
+    fn event(
+        state: &mut Self,
+        proxy: &zwp_input_method_v2::ZwpInputMethodV2,
+        event: <zwp_input_method_v2::ZwpInputMethodV2 as wayland_client::Proxy>::Event,
+        _data: &(),
+        _conn: &Connection,
+        qh: &QueueHandle<Self>,
+    ) {
+        use zwp_input_method_v2::Event;
         match event {
-            zwp_input_method_v1::Event::Activate { id } => {
+            Event::Activate => {
                 println!("method activate");
-                id.grab_keyboard(qhandle, ());
-                state.context = Some(id);
+                let grab = proxy.grab_keyboard(qh, ());
+                state.keyboard_grab = Some(grab);
                 println!("grab keyboard");
             }
-            zwp_input_method_v1::Event::Deactivate { context } => {
+            Event::Deactivate => {
+                println!("method deactivate");
                 state.input.clear();
-                state.context = None;
-                context.destroy();
-                println!("method inactive");
+                state.composor.clear();
+                if let Some(grab) = state.keyboard_grab.take() {
+                    grab.release();
+                }
+            }
+            Event::Done => {
+                // Increment the serial for our next commit() call.
+                state.done_serial += 1;
+            }
+            Event::Unavailable => {
+                println!("input method unavailable");
+                state.running = false;
+            }
+            Event::SurroundingText { text, cursor, anchor } => {
+                println!("surrounding_text: \"{}\" cursor={} anchor={}", text, cursor, anchor);
+            }
+            Event::ContentType { hint, purpose } => {
+                println!("content_type: hint={:?} purpose={:?}", hint, purpose);
+            }
+            Event::TextChangeCause { cause } => {
+                println!("text_change_cause: {:?}", cause);
             }
             _ => {}
         }
     }
-
-    event_created_child!(AppState, zwp_input_method_v1::ZwpInputMethodV1, [
-        EVT_ACTIVATE_OPCODE => (zwp_input_method_context_v1::ZwpInputMethodContextV1, ()),
-    ]);
 }
 
-impl Dispatch<zwp_input_method_context_v1::ZwpInputMethodContextV1, ()> for AppState {
+// ---------------------------------------------------------------------------
+// zwp_input_method_keyboard_grab_v2 — raw key events
+// ---------------------------------------------------------------------------
+
+impl Dispatch<zwp_input_method_keyboard_grab_v2::ZwpInputMethodKeyboardGrabV2, ()> for AppState {
     fn event(
         state: &mut Self,
-        _context: &zwp_input_method_context_v1::ZwpInputMethodContextV1,
-        event: zwp_input_method_context_v1::Event,
+        _proxy: &zwp_input_method_keyboard_grab_v2::ZwpInputMethodKeyboardGrabV2,
+        event: <zwp_input_method_keyboard_grab_v2::ZwpInputMethodKeyboardGrabV2 as wayland_client::Proxy>::Event,
         _data: &(),
         _conn: &Connection,
-        _qhandle: &QueueHandle<Self>,
+        _qh: &QueueHandle<Self>,
     ) {
-        println!("current content event is {:#?}", event);
+        use zwp_input_method_keyboard_grab_v2::Event;
         match event {
-            zwp_input_method_context_v1::Event::SurroundingText {
-                text,
-                cursor,
-                anchor,
+            Event::Key {
+                key, state: keystate, ..
             } => {
-                println!("{} {} {}", text, cursor, anchor);
-            }
-            zwp_input_method_context_v1::Event::CommitState { serial } => {
-                state.input_serial = serial
-            }
-            _ => {}
-        }
-    }
-}
+                let pressed = matches!(keystate, WEnum::Value(wl_keyboard::KeyState::Pressed));
 
-impl Dispatch<wl_keyboard::WlKeyboard, ()> for AppState {
-    fn event(
-        state: &mut Self,
-        _proxy: &wl_keyboard::WlKeyboard,
-        event: wl_keyboard::Event,
-        _data: &(),
-        _conn: &Connection,
-        _qhandle: &QueueHandle<Self>,
-    ) {
-        state.process(event);
+                let response = state.keyboard_processor.handle_key(
+                    key, pressed, state.is_ascii_mode,
+                );
+
+                let im = match state.input_method.as_ref() {
+                    Some(im) => im,
+                    None => return,
+                };
+
+                match state.composor.process(response) {
+                    KeyboardProcessorResponse::Result(input, candidates) => {
+                        state.input = input.clone();
+                        state.candidates = candidates;
+                        let len = state.input.len() as i32;
+                        im.set_preedit_string(state.input.clone(), 0, len);
+                        im.commit(state.done_serial);
+                    }
+                    KeyboardProcessorResponse::Commit => {
+                        let text: String = if state.input.is_empty() {
+                            " ".to_owned()
+                        } else if !state.candidates.is_empty() {
+                            state.candidates[0].text.clone()
+                        } else {
+                            return;
+                        };
+                        im.commit_string(text);
+                        im.commit(state.done_serial);
+                        state.input.clear();
+                        state.composor.clear();
+                    }
+                    KeyboardProcessorResponse::DirectlyCommit => {
+                        im.commit_string(state.input.clone());
+                        im.commit(state.done_serial);
+                        state.input.clear();
+                        state.composor.clear();
+                    }
+                    KeyboardProcessorResponse::Toggle => {
+                        state.is_ascii_mode = !state.is_ascii_mode;
+                    }
+                    KeyboardProcessorResponse::Ignored
+                    | KeyboardProcessorResponse::Composing(_)
+                    | KeyboardProcessorResponse::Backspace => {
+                        // Composing and Backspace are converted to Result or
+                        // Ignored inside Composor::process; anything still
+                        // falling through here is genuinely ignored.
+                    }
+                }
+            }
+            _ => {
+                // Ignore keymap / modifiers / repeat_info for now.
+            }
+        }
     }
 }
