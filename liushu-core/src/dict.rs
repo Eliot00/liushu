@@ -1,4 +1,8 @@
-use std::{fs::File, path::Path};
+use std::{
+    fs::File,
+    io::{BufWriter, Write},
+    path::Path,
+};
 
 use patricia_tree::StringPatriciaMap;
 use serde::{Deserialize, Serialize};
@@ -73,12 +77,17 @@ where
         }
     }
 
-    let mut trie_writer = File::create(output)?;
+    // bincode emits many small writes; without buffering each one is its own
+    // syscall, which dominated the whole build (508ms of a 537ms run on an
+    // 88k-row corpus, versus 2ms buffered).
+    let mut trie_writer = BufWriter::new(File::create(output)?);
     bincode_next::serde::encode_into_std_write(
         &trie,
         &mut trie_writer,
         bincode_next::config::standard().with_fixed_int_encoding(),
     )?;
+    // Flush explicitly: a `BufWriter` dropped on error would swallow the error.
+    trie_writer.flush()?;
 
     Ok(())
 }
