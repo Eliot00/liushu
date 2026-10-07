@@ -1,4 +1,4 @@
-use itertools::Itertools;
+use std::collections::HashSet;
 
 use crate::dict::Dictionary;
 
@@ -14,17 +14,105 @@ impl Translator for Dictionary {
             return vec![];
         }
 
-        self.iter_prefix(code)
-            .flat_map(|(_, value)| {
-                value.iter().map(|item| Candidate {
-                    text: item.text.clone(),
-                    code: item.code.clone(),
-                    comment: item.comment.clone(),
-                    weight: item.weight,
-                })
-            })
-            .unique_by(|i| i.text.clone())
-            .sorted_by_key(|i| std::cmp::Reverse(i.weight))
-            .collect()
+        // Dedup on a borrowed view of the text. The previous `unique_by` had
+        // to hand out an owned key, so it cloned every text on every keystroke
+        // just to throw the copy away in the hash set.
+        let mut seen: HashSet<&str> = HashSet::new();
+        let mut candidates: Vec<Candidate> = Vec::new();
+
+        // `iter_prefix` yields the matched code as an owned key, so the code
+        // can be taken from here instead of being cloned out of each item.
+        // Insertion order stays "first occurrence wins", which is what the
+        // previous `unique_by` did.
+        for (matched_code, items) in self.iter_prefix(code) {
+            for item in items {
+                if seen.insert(item.text.as_ref()) {
+                    candidates.push(Candidate {
+                        text: item.text.to_string(),
+                        code: matched_code.clone(),
+                        comment: item.comment.as_deref().map(str::to_owned),
+                        weight: item.weight,
+                    });
+                }
+            }
+        }
+
+        candidates.sort_by_key(|c| std::cmp::Reverse(c.weight));
+        candidates
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dict::DictItem;
+
+    fn item(text: &str, weight: u32) -> DictItem {
+        DictItem {
+            text: text.into(),
+            weight,
+            comment: None,
+        }
+    }
+
+    fn dict() -> Dictionary {
+        let mut d = Dictionary::new();
+        d.insert("ni", vec![item("你", 10), item("尼", 5)]);
+        d.insert(
+            "nihao",
+            vec![DictItem {
+                text: "你好".into(),
+                weight: 100,
+                comment: Some("greeting".into()),
+            }],
+        );
+        d.insert("hao", vec![item("好", 50)]);
+        d
+    }
+
+    #[test]
+    fn empty_code_matches_nothing() {
+        assert!(dict().translate("").is_empty());
+    }
+
+    #[test]
+    fn unmatched_code_matches_nothing() {
+        assert!(dict().translate("zzz").is_empty());
+    }
+
+    #[test]
+    fn matches_every_code_carrying_the_prefix_ordered_by_weight() {
+        let out = dict().translate("ni");
+        let texts: Vec<&str> = out.iter().map(|c| c.text.as_str()).collect();
+        assert_eq!(texts, ["你好", "你", "尼"]);
+    }
+
+    #[test]
+    fn candidate_code_comes_from_the_trie_key() {
+        let out = dict().translate("ni");
+        assert_eq!(out[0].text, "你好");
+        assert_eq!(out[0].code, "nihao");
+        assert_eq!(out[1].text, "你");
+        assert_eq!(out[1].code, "ni");
+    }
+
+    #[test]
+    fn comment_survives() {
+        let out = dict().translate("nihao");
+        assert_eq!(out[0].comment.as_deref(), Some("greeting"));
+    }
+
+    #[test]
+    fn dedups_by_text_keeping_the_first_in_prefix_order() {
+        // "你" lives under both "ni" and "nima". Keys iterate in sorted order,
+        // so "ni" is seen first and wins — matching the previous `unique_by`.
+        let mut d = Dictionary::new();
+        d.insert("ni", vec![item("你", 10)]);
+        d.insert("nima", vec![item("你", 99)]);
+
+        let out = d.translate("ni");
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].weight, 10);
+        assert_eq!(out[0].code, "ni");
     }
 }
