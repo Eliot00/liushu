@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fs::File,
     io::{BufWriter, Write},
     path::Path,
@@ -47,7 +48,11 @@ where
     I: AsRef<Path>,
     O: AsRef<Path>,
 {
-    let mut trie: Dictionary = StringPatriciaMap::new();
+    // Group by code before touching the trie. A hash probe per row is cheaper
+    // than a trie walk, and the trie then only has to be built once per unique
+    // code instead of being walked once per row. Items are appended in read
+    // order, so the per-code candidate order is unchanged.
+    let mut grouped: HashMap<Box<str>, Vec<DictItem>> = HashMap::new();
     for dict_path in inputs {
         let mut rdr = csv::ReaderBuilder::new()
             .delimiter(b'\t')
@@ -60,21 +65,18 @@ where
                 weight,
                 comment,
             } = result?;
-            let item = DictItem {
+
+            grouped.entry(code).or_default().push(DictItem {
                 text,
                 weight,
                 comment,
-            };
-
-            // One trie walk: `get_mut` both tests for the key and hands back
-            // the entry to append to.
-            match trie.get_mut(code.as_ref()) {
-                Some(entry) => entry.push(item),
-                None => {
-                    trie.insert(code.as_ref(), vec![item]);
-                }
-            }
+            });
         }
+    }
+
+    let mut trie: Dictionary = StringPatriciaMap::new();
+    for (code, items) in grouped {
+        trie.insert(code.as_ref(), items);
     }
 
     // bincode emits many small writes; without buffering each one is its own
