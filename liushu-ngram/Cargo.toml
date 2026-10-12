@@ -7,5 +7,4 @@ edition = "2024"
 
 [dependencies]
 liushu-core = { path = "../liushu-core" }
-redb = { workspace = true }
 clap = { workspace = true }

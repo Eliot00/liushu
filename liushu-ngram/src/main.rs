@@ -1,7 +1,6 @@
 use clap::{Parser, Subcommand};
-use redb::Database;
 
-use liushu_core::hmm::{pinyin_to_sentence, train_to_db};
+use liushu_core::lm::{pinyin_to_sentence, train};
 
 #[derive(Parser)]
 #[command(version)]
@@ -37,12 +36,10 @@ fn main() {
             corpus_path,
             output_path,
         }) => {
-            let db = Database::create(output_path).unwrap();
-            train_to_db(corpus_path, &db).unwrap();
+            train(corpus_path, output_path).unwrap();
         }
         Some(Commands::Lookup { inputs, model_path }) => {
-            let db = Database::open(model_path).unwrap();
-            let result = pinyin_to_sentence(inputs, &db).unwrap();
+            let result = pinyin_to_sentence(inputs, model_path).unwrap();
             println!("result is {}", result);
         }
         None => {}

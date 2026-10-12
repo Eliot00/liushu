@@ -173,26 +173,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bincode-next"
-version = "2.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a347d3b94606a7b3d588fe1ff7f41996bbb3690ade4e79935b26565af10e03f"
-dependencies = [
- "bincode_derive-next",
- "serde",
- "unty-next",
-]
-
-[[package]]
-name = "bincode_derive-next"
-version = "2.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "197e777c78cc9fbe8396cf82e18f84bb6026b8ec534ebb3097f4d98894e8b540"
-dependencies = [
- "virtue-next",
-]
-
-[[package]]
 name = "bitflags"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -527,17 +507,16 @@ dependencies = [
 name = "liushu-core"
 version = "0.1.0"
 dependencies = [
- "bincode-next",
  "csv",
  "data-encoding",
  "itertools",
- "patricia_tree",
+ "memmap2",
  "pinyin",
- "redb",
  "regex",
  "serde",
  "sha2",
  "thiserror 1.0.58",
+ "zerocopy",
 ]
 
 [[package]]
@@ -562,7 +541,6 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "liushu-core",
- "redb",
 ]
 
 [[package]]
@@ -576,6 +554,15 @@ name = "memchr"
 version = "2.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c8640c5d730cb13ebd907d8d04b52f55ac9a2eec55b440c8892f40d56c76c1d"
+
+[[package]]
+name = "memmap2"
+version = "0.9.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1219ed1b7f229ee7104d281dd01d6802fe28bb6e95d292942c4daacdeb798c0"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "mime"
@@ -620,15 +607,6 @@ name = "paste"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
-
-[[package]]
-name = "patricia_tree"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4df0e43512f12f23a6b08c7b893192b7d6ec937b95ee03af040847907fe5cef7"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "percent-encoding"
@@ -679,15 +657,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fa76aaf39101c457836aec0ce2316dbdc3ab723cdda1c6bd4e6ad4208acaca7"
 dependencies = [
  "proc-macro2",
-]
-
-[[package]]
-name = "redb"
-version = "3.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae323eb086579a3769daa2c753bb96deb95993c534711e0dbe881b5192906a06"
-dependencies = [
- "libc",
 ]
 
 [[package]]
@@ -1268,12 +1237,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "unty-next"
-version = "0.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "169ea32c8f5801e4b397f08d2b5d3d0d3675d11c241aad7338b601beed52a291"
-
-[[package]]
 name = "utf8parse"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1284,12 +1247,6 @@ name = "version_check"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
-
-[[package]]
-name = "virtue-next"
-version = "0.0.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4daab4b8a8c3c1408ea5e60a5d380790ff15d0cfe0333c14ce98210c1339fd8"
 
 [[package]]
 name = "wayland-backend"
@@ -1447,6 +1404,26 @@ name = "xdg"
 version = "2.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "213b7324336b53d2414b2db8537e56544d981803139155afa84f76eeebb7a546"
+
+[[package]]
+name = "zerocopy"
+version = "0.8.27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0894878a5fa3edfd6da3f88c4805f4c8558e2b996227a3d864f47fe11e38282c"
+dependencies = [
+ "zerocopy-derive",
+]
+
+[[package]]
+name = "zerocopy-derive"
+version = "0.8.27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "88d2b8d9c68ad2b9e4340d7832716a4d21a22a1154777ad56ea55c51a9cf3831"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "zmij"

@@ -20,18 +20,18 @@ impl Translator for Dictionary {
         let mut seen: HashSet<&str> = HashSet::new();
         let mut candidates: Vec<Candidate> = Vec::new();
 
-        // `iter_prefix` yields the matched code as an owned key, so the code
-        // can be taken from here instead of being cloned out of each item.
-        // Insertion order stays "first occurrence wins", which is what the
-        // previous `unique_by` did.
-        for (matched_code, items) in self.iter_prefix(code) {
-            for item in items {
-                if seen.insert(item.text.as_ref()) {
+        // 键表按字节序排好，以 `code` 开头的编码是一个连续区间，一次二分就能定位。
+        // 区间按键序推进，"先出现的赢"——与当初 `unique_by` 的行为一致。
+        for index in self.prefix_range(code) {
+            let matched_code = self.code_at(index);
+            for slot in self.slots_at(index) {
+                let text = self.slot_text(slot);
+                if seen.insert(text) {
                     candidates.push(Candidate {
-                        text: item.text.to_string(),
-                        code: matched_code.clone(),
-                        comment: item.comment.as_deref().map(str::to_owned),
-                        weight: item.weight,
+                        text: text.to_string(),
+                        code: matched_code.to_string(),
+                        comment: self.slot_comment(slot).map(str::to_owned),
+                        weight: slot.weight(),
                     });
                 }
             }
@@ -56,18 +56,18 @@ mod tests {
     }
 
     fn dict() -> Dictionary {
-        let mut d = Dictionary::new();
-        d.insert("ni", vec![item("你", 10), item("尼", 5)]);
-        d.insert(
-            "nihao",
-            vec![DictItem {
-                text: "你好".into(),
-                weight: 100,
-                comment: Some("greeting".into()),
-            }],
-        );
-        d.insert("hao", vec![item("好", 50)]);
-        d
+        Dictionary::from_items([
+            ("ni", vec![item("你", 10), item("尼", 5)]),
+            (
+                "nihao",
+                vec![DictItem {
+                    text: "你好".into(),
+                    weight: 100,
+                    comment: Some("greeting".into()),
+                }],
+            ),
+            ("hao", vec![item("好", 50)]),
+        ])
     }
 
     #[test]
@@ -88,7 +88,7 @@ mod tests {
     }
 
     #[test]
-    fn candidate_code_comes_from_the_trie_key() {
+    fn candidate_code_comes_from_the_matched_key() {
         let out = dict().translate("ni");
         assert_eq!(out[0].text, "你好");
         assert_eq!(out[0].code, "nihao");
@@ -106,9 +106,8 @@ mod tests {
     fn dedups_by_text_keeping_the_first_in_prefix_order() {
         // "你" lives under both "ni" and "nima". Keys iterate in sorted order,
         // so "ni" is seen first and wins — matching the previous `unique_by`.
-        let mut d = Dictionary::new();
-        d.insert("ni", vec![item("你", 10)]);
-        d.insert("nima", vec![item("你", 99)]);
+        let d =
+            Dictionary::from_items([("ni", vec![item("你", 10)]), ("nima", vec![item("你", 99)])]);
 
         let out = d.translate("ni");
         assert_eq!(out.len(), 1);
