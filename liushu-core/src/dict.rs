@@ -117,20 +117,38 @@ pub struct Dictionary {
 
     /// 与 `keys` 同序；同一个编码下按词频降序。
     slots: Table<Slot>,
+
+    /// 全部词频之和，把词频归一成概率用。
+    total_weight: u64,
 }
 
 impl Dictionary {
     /// 从文件打开（`mmap`，不反序列化）。
     pub fn open(path: impl AsRef<Path>) -> Result<Self, LiushuError> {
         let container = Container::open(path, KIND)?;
-        let dictionary = Self {
+        let mut dictionary = Self {
             texts: container.text(TEXT_TAG)?,
             codes: container.text(CODE_TAG)?,
             keys: container.table(KEY_TAG)?,
             slots: container.table(SLOT_TAG)?,
+            total_weight: 0,
         };
         dictionary.validate()?;
+        dictionary.total_weight = dictionary.sum_weight();
         Ok(dictionary)
+    }
+
+    /// 全部词频之和（至少 1，避免除零）。
+    pub fn total_weight(&self) -> u64 {
+        self.total_weight.max(1)
+    }
+
+    fn sum_weight(&self) -> u64 {
+        self.slots
+            .iter()
+            .map(|slot| u64::from(slot.weight))
+            .sum::<u64>()
+            .max(1)
     }
 
     /// 校验各段互相引用得通：映射里任何一个偏移越界都要在这里拦住，而不是在查询时 panic。
@@ -228,7 +246,15 @@ impl Dictionary {
             codes: Text::Owned(codes),
             keys: Table::Owned(keys),
             slots: Table::Owned(slots),
+            total_weight: 0,
         }
+        .with_total_weight()
+    }
+
+    /// 补上词频总和（`from_items` 与 `open` 都各算一次，代价是一次线性求和）。
+    fn with_total_weight(mut self) -> Self {
+        self.total_weight = self.sum_weight();
+        self
     }
 
     /// 把内存词库写进一个容器文件（先写 `.tmp` 再改名）。
@@ -297,6 +323,14 @@ impl Dictionary {
         }
         let start = slot.text_start as usize + usize::from(slot.text_len);
         Some(&self.texts[start..start + usize::from(slot.comment_len)])
+    }
+
+    /// 编码与 `code` 完全相同的键的下标。
+    ///
+    /// 整句解码只认精确匹配：`ni` 和 `nihao` 是两个不同的词，按前缀取候选会把两件事混在一起。
+    pub fn exact(&self, code: &str) -> Option<usize> {
+        let index = self.partition_point(|existing| existing < code);
+        (index < self.keys.len() && self.code_at(index) == code).then_some(index)
     }
 
     /// 以 `prefix` 开头的编码在键表里的区间。
@@ -473,6 +507,16 @@ mod tests {
         assert!(dictionary.prefix_range("zzz").is_empty());
         assert!(dictionary.has_prefix("nih"));
         assert!(!dictionary.has_prefix("nihaoa"));
+    }
+
+    #[test]
+    fn exact_lookup_finds_only_the_same_code() {
+        let dictionary = sample();
+        assert_eq!(dictionary.exact("ni"), Some(1));
+        assert_eq!(dictionary.exact("nihao"), Some(2));
+        assert_eq!(dictionary.exact("n"), None);
+        assert_eq!(dictionary.exact("nih"), None);
+        assert_eq!(dictionary.exact(""), None);
     }
 
     #[test]
