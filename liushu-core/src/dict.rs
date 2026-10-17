@@ -133,8 +133,8 @@ impl Dictionary {
             slots: container.table(SLOT_TAG)?,
             total_weight: 0,
         };
-        dictionary.validate()?;
-        dictionary.total_weight = dictionary.sum_weight();
+        // 校验与求和合成一趟：几十万条候选，多扫一遍就是多几毫秒的启动时间。
+        dictionary.total_weight = dictionary.validate()?;
         Ok(dictionary)
     }
 
@@ -143,16 +143,10 @@ impl Dictionary {
         self.total_weight.max(1)
     }
 
-    fn sum_weight(&self) -> u64 {
-        self.slots
-            .iter()
-            .map(|slot| u64::from(slot.weight))
-            .sum::<u64>()
-            .max(1)
-    }
-
-    /// 校验各段互相引用得通：映射里任何一个偏移越界都要在这里拦住，而不是在查询时 panic。
-    fn validate(&self) -> Result<(), LiushuError> {
+    /// 校验各段互相引用得通，顺便把总词频算出来。
+    ///
+    /// 映射里任何一个偏移越界都要在这里拦住，而不是在查询时 panic。
+    fn validate(&self) -> Result<u64, LiushuError> {
         let corrupt = |what: &str| LiushuError::Other(format!("dictionary is corrupt: {what}"));
         for key in self.keys.iter() {
             let code_end = key.code_start as usize + usize::from(key.code_len);
@@ -164,6 +158,7 @@ impl Dictionary {
                 return Err(corrupt("key points outside the slot table"));
             }
         }
+        let mut total_weight = 0u64;
         for slot in self.slots.iter() {
             let end = slot.text_start as usize
                 + usize::from(slot.text_len)
@@ -171,6 +166,7 @@ impl Dictionary {
             if self.texts.get(slot.text_start as usize..end).is_none() {
                 return Err(corrupt("slot points outside the text arena"));
             }
+            total_weight += u64::from(slot.weight);
         }
         if self
             .keys
@@ -179,7 +175,7 @@ impl Dictionary {
         {
             return Err(corrupt("keys are not sorted"));
         }
-        Ok(())
+        Ok(total_weight.max(1))
     }
 
     /// 从「编码 → 候选」建一个内存词库。编码重复时后者覆盖前者。
@@ -241,20 +237,18 @@ impl Dictionary {
             codes.push_str(&code);
         }
 
+        let total_weight = slots
+            .iter()
+            .map(|slot| u64::from(slot.weight))
+            .sum::<u64>()
+            .max(1);
         Self {
             texts: Text::Owned(texts),
             codes: Text::Owned(codes),
             keys: Table::Owned(keys),
             slots: Table::Owned(slots),
-            total_weight: 0,
+            total_weight,
         }
-        .with_total_weight()
-    }
-
-    /// 补上词频总和（`from_items` 与 `open` 都各算一次，代价是一次线性求和）。
-    fn with_total_weight(mut self) -> Self {
-        self.total_weight = self.sum_weight();
-        self
     }
 
     /// 把内存词库写进一个容器文件（先写 `.tmp` 再改名）。
@@ -336,29 +330,24 @@ impl Dictionary {
     /// 以 `prefix` 开头的编码在键表里的区间。
     ///
     /// 编码按字节序排好，所以「以某前缀开头」的键一定连续：区间起点是第一个 ≥ `prefix`
-    /// 的键，终点是第一个 ≥ `prefix + 0xFF` 的键——UTF-8 里没有任何字节序列以 0xFF 开头，
+    /// 的键，终点是第一个 ≥ `prefix + 0xFF` 的键——UTF-8 里没有任何字节序列含 0xFF，
     /// 所以带该前缀的键全都落在 `prefix + 0xFF` 之前。
+    ///
+    /// 两个端点都是二分，代价 O(log 编码数)——**与区间里有多少条编码无关**。形码一个键就能
+    /// 命中几千条编码，`has_prefix` 这种「只问有没有」的调用必须便宜。
     pub fn prefix_range(&self, prefix: &str) -> std::ops::Range<usize> {
         let start = self.partition_point(|code| code < prefix);
         let mut upper = Vec::with_capacity(prefix.len() + 1);
         upper.extend_from_slice(prefix.as_bytes());
         upper.push(0xFF);
-        let end = match self.partition_point_bytes(&upper) {
-            Some(end) => end,
-            None => {
-                // `prefix + 0xFF` 不是合法 UTF-8（前缀里出现非 ASCII 字节时）：退化成扫描，
-                // 区间在键表里连续，逐条比到不匹配为止。
-                let mut end = start;
-                while end < self.keys.len() && self.code_at(end).starts_with(prefix) {
-                    end += 1;
-                }
-                end
-            }
-        };
+        let end = self.partition_point_bytes(&upper);
         start..end.max(start)
     }
 
-    /// 第一个不小于 `needle` 的键的位置（按 UTF-8 字节序）。
+    /// 第一个不小于 `needle` 的键的位置（按原始字节比较）。
+    ///
+    /// `needle` 不需要是合法 UTF-8（上界是 `前缀 + 0xFF`）；比较的是双方字节，不切键，
+    /// 所以不存在字符边界问题。
     fn partition_point(&self, less: impl Fn(&str) -> bool) -> usize {
         let mut low = 0;
         let mut high = self.keys.len();
@@ -373,9 +362,8 @@ impl Dictionary {
         low
     }
 
-    /// 按原始字节比较的二分；`needle` 不是合法 UTF-8 时返回 `None`。
-    fn partition_point_bytes(&self, needle: &[u8]) -> Option<usize> {
-        std::str::from_utf8(needle).ok()?;
+    /// 按原始字节比较的二分。
+    fn partition_point_bytes(&self, needle: &[u8]) -> usize {
         let mut low = 0;
         let mut high = self.keys.len();
         while low < high {
@@ -386,7 +374,7 @@ impl Dictionary {
                 high = mid;
             }
         }
-        Some(low)
+        low
     }
 
     /// 有没有以 `prefix` 开头的编码。
@@ -418,7 +406,7 @@ impl Dictionary {
     }
 }
 
-/// 建词库：读若干 TSV（`text\tcode\tweight[\tcomment]`），写出容器文件。
+/// 建词库：读若干 TSV（`text\tcode\tweight[\tcomment]`，首行表头），写出容器文件。
 ///
 /// 先按编码分组再做表：哈希探测比在键表上二分便宜，而且表每条编码只建一次。
 pub fn build<I, O>(inputs: &[I], output: O) -> Result<(), LiushuError>
@@ -426,29 +414,56 @@ where
     I: AsRef<Path>,
     O: AsRef<Path>,
 {
-    let mut grouped: HashMap<Box<str>, Vec<DictItem>> = HashMap::new();
+    let mut rows: Vec<(Box<str>, DictItem)> = Vec::new();
     for dict_path in inputs {
-        let mut reader = csv::ReaderBuilder::new()
-            .delimiter(b'\t')
-            .comment(Some(b'#'))
-            .from_path(dict_path)?;
-        for result in reader.deserialize() {
-            let DictRow {
-                text,
-                code,
-                weight,
-                comment,
-            } = result?;
-            grouped.entry(code).or_default().push(DictItem {
-                text,
-                weight,
-                comment,
-            });
-        }
+        rows.extend(read_tsv(dict_path)?);
     }
+    build_rows(rows, output)
+}
 
-    let dictionary = Dictionary::from_items(grouped);
-    dictionary.write(output)
+/// 读一个 TSV（`text\tcode\tweight[\tcomment]`，首行表头）。
+pub fn read_tsv(path: impl AsRef<Path>) -> Result<Vec<(Box<str>, DictItem)>, LiushuError> {
+    let mut rows = Vec::new();
+    let mut reader = csv::ReaderBuilder::new()
+        .delimiter(b'\t')
+        .comment(Some(b'#'))
+        .from_path(path)?;
+    for result in reader.deserialize() {
+        let DictRow {
+            text,
+            code,
+            weight,
+            comment,
+        } = result?;
+        if code.is_empty() || text.is_empty() {
+            continue;
+        }
+        rows.push((
+            code,
+            DictItem {
+                text,
+                weight,
+                comment,
+            },
+        ));
+    }
+    Ok(rows)
+}
+
+/// 从「(编码, 候选)」逐行建词库，写出容器文件。
+///
+/// 读 TSV、读 Rime 码表、程序里现造一批词，最后都走这条路——分组、去重、落盘的规则只有一份。
+/// 词库是追加语义：编码相同的行并到同一个键下，顺序保持读入顺序（同权重时就是这个顺序）。
+pub fn build_rows<I, O>(rows: I, output: O) -> Result<(), LiushuError>
+where
+    I: IntoIterator<Item = (Box<str>, DictItem)>,
+    O: AsRef<Path>,
+{
+    let mut grouped: HashMap<Box<str>, Vec<DictItem>> = HashMap::new();
+    for (code, item) in rows {
+        grouped.entry(code).or_default().push(item);
+    }
+    Dictionary::from_items(grouped).write(output)
 }
 
 #[cfg(test)]

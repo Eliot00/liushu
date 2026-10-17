@@ -247,7 +247,13 @@ impl Container {
             .get(..HEADER_LEN)
             .ok_or_else(|| LiushuError::Other("file is shorter than a header".to_owned()))?;
         if header[..8] != MAGIC {
-            return Err(LiushuError::Other("not a liushu container".to_owned()));
+            // 旧版 liushu 的 `sunman.trie` 是 bincode 存的，长得跟任何容器都不像。移动端最容易
+            // 撞上的坑就是：APK 里换了新词库，app 私有目录里还留着上次安装释放的旧副本。
+            return Err(LiushuError::Other(
+                "not a liushu container (an old bincode dictionary? regenerate it, or clear the \
+                 app data that still holds the copy extracted by a previous install)"
+                    .to_owned(),
+            ));
         }
         let version = u32::from_le_bytes(header[8..12].try_into().expect("4 bytes"));
         if version != FORMAT_VERSION {

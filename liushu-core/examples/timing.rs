@@ -1,10 +1,11 @@
 //! 开发用计时：打开词库 / 语言模型，报告文件大小与打开耗时。
 //!
 //! ```text
-//! cargo run --release -p liushu-core --example timing -- dict.bin [model.bin] [pinyin]
+//! cargo run --release -p liushu-core --example timing -- dict.bin [model.bin] [code]
 //! ```
 //!
-//! 只给词库路径就只测词库；再给模型路径就一起测整句解码（第三个参数是拼音，默认 `nihao`）。
+//! 只给词库路径就只测词库；第二个参数是已存在的文件就当成语言模型，再往后一个参数是要查的
+//! 编码（默认 `nihao`）。
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -26,8 +27,10 @@ fn main() {
         return;
     };
     let model_path = arguments.get(1).filter(|path| path.exists());
-    let code = std::env::args()
-        .nth(3)
+    // 第二个参数被当成模型时，编码在第三个位置；否则编码就在第二个位置。
+    let code = arguments
+        .get(if model_path.is_some() { 2 } else { 1 })
+        .map(|argument| argument.to_string_lossy().into_owned())
         .unwrap_or_else(|| "nihao".to_owned());
 
     let started = Instant::now();
@@ -50,11 +53,19 @@ fn main() {
         open
     );
 
+    // 第一次调用要把页从磁盘带进来，所以再跑若干次取热态平均值。
+    const ROUNDS: u32 = 200;
     let started = Instant::now();
     let candidates = engine.search(&code).map(|list| list.len()).unwrap_or(0);
+    let first = started.elapsed();
+    let started = Instant::now();
+    for _ in 0..ROUNDS {
+        let _ = engine.search(&code);
+    }
     println!(
-        "  search({code:?}) {:.1?}，命中 {candidates} 条候选",
-        started.elapsed()
+        "  search({code:?}) 首次 {:.1?}、热态平均 {:.1?}，命中 {candidates} 条候选",
+        first,
+        started.elapsed() / ROUNDS
     );
 
     if let Some(model_path) = model_path {
